@@ -142,7 +142,7 @@ def save_books_to_sheet(client, books: list) -> None:
             ws = sh.add_worksheet(title=BOOKS_SHEET_NAME, rows="200", cols="4")
         ws.clear()
         if books:
-            ws.update("A1", [[b["title"], b["author"], b["summary"], b["image_url"]] for b in books)
+            ws.update("A1", [[b["title"], b["author"], b["summary"], b["image_url"]] for b in books])
     except Exception:
         pass
 
