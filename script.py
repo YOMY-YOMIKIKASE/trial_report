@@ -158,7 +158,7 @@ def save_crews_to_sheet(client, crews: list) -> None:
             ws = sh.add_worksheet(title=CREWS_SHEET_NAME, rows="200", cols="3")
         ws.clear()
         if crews:
-            ws.update("A1", [[c["name"], c["photo_url"], c["favorite_book"]] for c in crews)
+            ws.update("A1", [[c["name"], c["photo_url"], c["favorite_book"]] for c in crews])
     except Exception:
         pass
 
