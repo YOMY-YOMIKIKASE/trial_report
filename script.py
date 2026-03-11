@@ -364,7 +364,13 @@ book = st.selectbox("どの絵本ですか？", book_titles)
 crew = st.selectbox("読み手は誰ですか?", crew_names)
 upload_image = st.file_uploader("画像をアップロードしてください", type=["jpg", "jpeg", "png"])
 name = st.text_input("こどものなまえ(〇〇ちゃん/くん)")
-comment = st.text_area("コメント(難しい漢字は表示されないよ！)")
+comment = st.text_area("コメント（難しい漢字は表示されないよ！）")
+comment2 = st.text_area("コメント２（難しい漢字は表示されないよ！）")
+
+st.divider()
+st.subheader("LINE用フォローアップ設定")
+parent_last_name = st.text_input("保護者の名字")
+child_name_kanji = st.text_input("子供の名前（漢字、LINE用）")
 
 if upload_image is not None:
     if st.button("実行"):
@@ -386,10 +392,32 @@ if upload_image is not None:
                 y = line_counter * 100 + 2734
                 draw.multiline_text((313, y), line, fill=("black"), font=font_comment)
                 line_counter = line_counter + 1
-            filename = "line_followup.txt"
-            with open(filename) as file:
-                line_text = file.read()
-            line_text = line_text.format(name)
+            if comment2:
+                line_counter += 1
+                for line in textwrap.wrap(comment2, 22):
+                    y = line_counter * 100 + 2734
+                    draw.multiline_text((313, y), line, fill=("black"), font=font_comment)
+                    line_counter += 1
+            _child = child_name_kanji.strip() if child_name_kanji.strip() else name
+            _parent = parent_last_name.strip() if parent_last_name.strip() else "○○"
+            line_text = (
+                f"{_parent}さま\n\n"
+                f"本日はYOMY!の体験会にご参加いただき、ありがとうございました✨ \n"
+                f"{_child}が楽しんでくれていたら、とても嬉しく思います。\n\n"
+                f"{_child}は、言葉の土台がしっかりしており、想像力がすごく豊かで、また心の中に素敵な世界をたくさん持っているのだなぁと感じました🌱\n\n"
+                f"だからこそ、新しい環境のなかで「自分の言葉で表現する力」がさらに育っていくことで、{_child}の\"深く考える力\"や\"世界の広がり\"も、きっともっと豊かになっていくと思います🌏\n\n\n"
+                f"YOMY!では、日々の対話を通して、{_child}の「自分の気持ちを伝える力」や「表現力」を大切に育んでいけるようサポートしています。\n\n"
+                f"「自分の思いを伝えるって、楽しい！」\n"
+                f"そんな体験を、これからもご一緒できたら嬉しいです☺️\n\n"
+                f"もしご不明な点やご質問がありましたら、こちらの公式LINEへ、いつでもお気軽にご連絡くださいませ。\n\n"
+                f"📍お申し込みリンク：\n"
+                f"https://liff.line.me/2006624979-3bPO8YbO/apply\n\n"
+                f"▼お申し込み・レッスン情報の確認方法\n"
+                f"LINEのリッチメニューより\n"
+                f"　「メニューをみる」→「YOMY! Familyの方」→右上「アプリログイン」からお申し込みが可能です。\n"
+                f"　「メニューをみる」→「はじめての方」→右下「QA」からレッスン詳細もご覧いただけます。\n"
+                f"現在、体験会後2日以内（当日・翌日まで）にお申し込みいただくと、通常20,000円の入会金が無料 となります✨ぜひこの機会にご検討くださいませ。"
+            )
             img.save("result.jpg", quality=100)
             with open("result.jpg", "rb") as file:
                 btn = st.download_button(
