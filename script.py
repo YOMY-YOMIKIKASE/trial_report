@@ -16,6 +16,30 @@ st.title("体験会コメントシートメーカー")
 DEFAULT_BOOKS = ['たんぽぽのぽんちゃん', 'ぼくエスカレーター', 'グルメなペリカン']
 DEFAULT_CREWS = ['Cory']
 
+BOOK_COMMENT_EXAMPLES = {
+    "たんぽぽのぽんちゃん": (
+        "きょうはいっしょにえほんをよんでくれてありがとう！"
+        "〇〇ちゃん「つぎは、どうなるかな？」ってかんがえてくれて、〇〇とってもたのしかったよ！"
+        "〇〇ちゃんが、おうえんのうたをたくさんうたってくれたから、ぽんちゃんもニコニコえがおになったね！"
+        "「ぜんぶのいろ」のおはなのえもとってもすてき！カラフルで、ワクワクしたよ！"
+        "またいっしょにえほんをよもうね！"
+    ),
+    "グルメなペリカン": (
+        "きょうはいっしょにえほんをよんでくれてありがとう！"
+        "〇〇ちゃん「つぎは、どうなるかな？」ってかんがえてくれて、〇〇とってもたのしかったよ！"
+        "ペリカンさんにたべかたをおしえてあげたらいいね！って〇〇ちゃんのアイデアとってもすてき！"
+        "かいてくれたトリさん、カラフルで、おともだちもいてワクワクしたよ！"
+        "またいっしょにえほんをよもうね！"
+    ),
+    "ぼくエスカレーター": (
+        "きょうはいっしょにえほんをよんでくれてありがとう！"
+        "〇〇ちゃん「つぎは、どうなるかな？」って、たくさんかんがえてくれて、〇〇とってもたのしかったよ！"
+        "〇〇ちゃんが、かいてくれたにんじんせいじんとおうち、とってもすてきだったね！"
+        "とくに、にんじんせいじんのために、くさがあったり、そこからあかちゃんせいじんがでてきたりするのが、ナイスアイデア！ワクワクしたよ！"
+        "またいっしょにえほんをよもうね！"
+    ),
+}
+
 GOOGLE_SERVICE_ACCOUNT_JSON_ENV = "GOOGLE_SERVICE_ACCOUNT_JSON"
 GOOGLE_SERVICE_ACCOUNT_FILE = "service_account.json"
 CONFIG_SPREADSHEET_ID_ENV = "CONFIG_SPREADSHEET_ID"
@@ -364,13 +388,18 @@ book = st.selectbox("どの絵本ですか？", book_titles)
 crew = st.selectbox("読み手は誰ですか?", crew_names)
 upload_image = st.file_uploader("画像をアップロードしてください", type=["jpg", "jpeg", "png"])
 name = st.text_input("こどものなまえ(〇〇ちゃん/くん)")
-comment = st.text_area("コメント（難しい漢字は表示されないよ！）")
-comment2 = st.text_area("コメント２（難しい漢字は表示されないよ！）")
+_example = BOOK_COMMENT_EXAMPLES.get(book, "")
+comment = st.text_area(
+    "コメント（難しい漢字は表示されないよ！）",
+    value=_example,
+    height=260,
+    key=f"comment_{book}",
+)
 
 st.divider()
 st.subheader("LINE用フォローアップ設定")
 parent_last_name = st.text_input("保護者の名字")
-child_name_kanji = st.text_input("子供の名前（漢字、LINE用）")
+child_name_kanji = st.text_input("子どもの名前（漢字、LINE用、〇〇ちゃん/くん）")
 
 if upload_image is not None:
     if st.button("実行"):
@@ -385,19 +414,13 @@ if upload_image is not None:
             draw = ImageDraw.Draw(img)
             font_name = ImageFont.truetype("Assets/b.ttc", 90)
             draw.text((1820, 300), name, fill=("white"), font=font_name)
-            wrap_list = textwrap.wrap(comment, 22)
-            font_comment = ImageFont.truetype("Assets/c.otf", 90)
+            wrap_list = textwrap.wrap(comment, 26)
+            font_comment = ImageFont.truetype("Assets/c.otf", 75)
             line_counter = 0
             for line in wrap_list:
-                y = line_counter * 100 + 2734
+                y = line_counter * 85 + 2734
                 draw.multiline_text((313, y), line, fill=("black"), font=font_comment)
                 line_counter = line_counter + 1
-            if comment2:
-                line_counter += 1
-                for line in textwrap.wrap(comment2, 22):
-                    y = line_counter * 100 + 2734
-                    draw.multiline_text((313, y), line, fill=("black"), font=font_comment)
-                    line_counter += 1
             _child = child_name_kanji.strip() if child_name_kanji.strip() else name
             _parent = parent_last_name.strip() if parent_last_name.strip() else "○○"
             line_text = (
