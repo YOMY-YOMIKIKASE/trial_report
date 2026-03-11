@@ -138,9 +138,12 @@ def upload_image_to_drive(file_bytes, filename, mimetype="image/jpeg", use_base6
     # base64フォールバック（クルー写真など小サイズ画像向け）
     if use_base64_fallback:
         st.info(
-            "⚠️ Google Drive APIが有効化されていないため、画像を小さくしてスプレッドシートに保存します。\n\n"
-            "高画質で保存したい場合は、Google Cloud Consoleで **Drive API** を有効化してください:\n"
-            "https://console.cloud.google.com/apis/library/drive.googleapis.com"
+            f"⚠️ Google Drive へのアップロードに失敗したため、画像を小さくしてスプレッドシートに保存します。\n\n"
+            f"**エラー詳細**: `{drive_error}`\n\n"
+            "考えられる原因:\n"
+            "- サービスアカウントに Drive の書き込み権限がない\n"
+            "- 組織のポリシーで外部共有が制限されている\n"
+            "- Google Cloud Console で Drive API が有効化されていない"
         )
         try:
             img = Image.open(io.BytesIO(file_bytes))
