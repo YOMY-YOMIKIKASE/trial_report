@@ -170,10 +170,10 @@ def save_books_to_sheet(client, books: list) -> bool:
         rows = [["title", "author", "summary", "image_url"]]
         if books:
             rows += [[b["title"], b["author"], b["summary"], b["image_url"]] for b in books]
-        ws.update("A1", rows)
+        ws.update(rows, "A1")
         return True
     except Exception as e:
-        st.error(f"❌ スプレッドシート保存失敗: {e}")
+        st.error(f"❌ スプレッドシート保存失敗: {type(e).__name__}: {repr(e)}")
         return False
 
 
@@ -196,10 +196,10 @@ def save_crews_to_sheet(client, crews: list) -> bool:
         rows = [["name", "photo_url", "favorite_book", "favorite_book_author"]]
         if crews:
             rows += [[c["name"], c["photo_url"], c["favorite_book"], c.get("favorite_book_author", "")] for c in crews]
-        ws.update("A1", rows)
+        ws.update(rows, "A1")
         return True
     except Exception as e:
-        st.error(f"❌ スプレッドシート保存失敗: {e}")
+        st.error(f"❌ スプレッドシート保存失敗: {type(e).__name__}: {repr(e)}")
         return False
 
 
