@@ -13,7 +13,7 @@ st.set_page_config(page_title="体験会コメントシートメーカー")
 st.title("体験会コメントシートメーカー")
 
 DEFAULT_BOOKS = ['たんぽぽのぽんちゃん', 'ぼくエスカレーター', 'グルメなペリカン']
-DEFAULT_CREWS = ['Zen', 'Cory']
+DEFAULT_CREWS = ['Cory']
 
 GOOGLE_SERVICE_ACCOUNT_JSON_ENV = "GOOGLE_SERVICE_ACCOUNT_JSON"
 GOOGLE_SERVICE_ACCOUNT_FILE = "service_account.json"
@@ -175,7 +175,7 @@ def load_books_from_sheet(client) -> list:
     if not rows:
         return [_book_dict(t) for t in DEFAULT_BOOKS]
     out = []
-    for row in rows:
+    for row in rows[1:]:  # 1行目はヘッダーなのでスキップ
         row = [str(c).strip() for c in row]
         if not row or not row[0]:
             continue
@@ -200,7 +200,7 @@ def load_crews_from_sheet(client) -> list:
     if not rows:
         return [_crew_dict(n) for n in DEFAULT_CREWS]
     out = []
-    for row in rows:
+    for row in rows[1:]:  # 1行目はヘッダーなのでスキップ
         row = [str(c).strip() for c in row]
         if not row or not row[0]:
             continue
@@ -223,8 +223,10 @@ def save_books_to_sheet(client, books: list) -> None:
         except gspread.WorksheetNotFound:
             ws = sh.add_worksheet(title=BOOKS_SHEET_NAME, rows="200", cols="4")
         ws.clear()
+        rows = [["title", "author", "summary", "image_url"]]
         if books:
-            ws.update("A1", [[b["title"], b["author"], b["summary"], b["image_url"]] for b in books])
+            rows += [[b["title"], b["author"], b["summary"], b["image_url"]] for b in books]
+        ws.update("A1", rows)
     except Exception:
         pass
 
@@ -240,8 +242,10 @@ def save_crews_to_sheet(client, crews: list) -> None:
         except gspread.WorksheetNotFound:
             ws = sh.add_worksheet(title=CREWS_SHEET_NAME, rows="200", cols="4")
         ws.clear()
+        rows = [["name", "photo_url", "favorite_book", "favorite_book_author"]]
         if crews:
-            ws.update("A1", [[c["name"], c["photo_url"], c["favorite_book"], c.get("favorite_book_author", "")] for c in crews])
+            rows += [[c["name"], c["photo_url"], c["favorite_book"], c.get("favorite_book_author", "")] for c in crews]
+        ws.update("A1", rows)
     except Exception:
         pass
 
