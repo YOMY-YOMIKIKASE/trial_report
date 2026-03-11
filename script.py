@@ -5,6 +5,7 @@ import json
 import os
 import io
 import base64
+import traceback
 import gspread
 from google.oauth2.service_account import Credentials
 import requests
@@ -173,7 +174,7 @@ def save_books_to_sheet(client, books: list) -> bool:
         ws.update(rows, "A1")
         return True
     except Exception as e:
-        st.error(f"❌ スプレッドシート保存失敗: {type(e).__name__}: {repr(e)}")
+        st.error(f"❌ スプレッドシート保存失敗: {type(e).__name__}: {repr(e)}\n\n```\n{traceback.format_exc()}\n```")
         return False
 
 
@@ -199,7 +200,7 @@ def save_crews_to_sheet(client, crews: list) -> bool:
         ws.update(rows, "A1")
         return True
     except Exception as e:
-        st.error(f"❌ スプレッドシート保存失敗: {type(e).__name__}: {repr(e)}")
+        st.error(f"❌ スプレッドシート保存失敗: {type(e).__name__}: {repr(e)}\n\n```\n{traceback.format_exc()}\n```")
         return False
 
 
