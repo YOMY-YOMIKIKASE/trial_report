@@ -151,10 +151,15 @@ def load_crews_from_sheet(client) -> list:
     return out or [_crew_dict(n) for n in DEFAULT_CREWS]
 
 
-def save_books_to_sheet(client, books: list) -> None:
+def save_books_to_sheet(client, books: list) -> bool:
+    """保存成功でTrue、失敗でFalseを返す。"""
     spreadsheet_id = get_spreadsheet_id()
-    if not client or not spreadsheet_id:
-        return
+    if not client:
+        st.error("❌ スプレッドシート保存失敗: Google認証情報が取得できていません。Renderの環境変数 GOOGLE_SERVICE_ACCOUNT_JSON を確認してください。")
+        return False
+    if not spreadsheet_id:
+        st.error("❌ スプレッドシート保存失敗: スプレッドシートIDが未設定です。Renderの環境変数 CONFIG_SPREADSHEET_ID を確認してください。")
+        return False
     try:
         sh = client.open_by_key(spreadsheet_id)
         try:
@@ -166,14 +171,21 @@ def save_books_to_sheet(client, books: list) -> None:
         if books:
             rows += [[b["title"], b["author"], b["summary"], b["image_url"]] for b in books]
         ws.update("A1", rows)
-    except Exception:
-        pass
+        return True
+    except Exception as e:
+        st.error(f"❌ スプレッドシート保存失敗: {e}")
+        return False
 
 
-def save_crews_to_sheet(client, crews: list) -> None:
+def save_crews_to_sheet(client, crews: list) -> bool:
+    """保存成功でTrue、失敗でFalseを返す。"""
     spreadsheet_id = get_spreadsheet_id()
-    if not client or not spreadsheet_id:
-        return
+    if not client:
+        st.error("❌ スプレッドシート保存失敗: Google認証情報が取得できていません。Renderの環境変数 GOOGLE_SERVICE_ACCOUNT_JSON を確認してください。")
+        return False
+    if not spreadsheet_id:
+        st.error("❌ スプレッドシート保存失敗: スプレッドシートIDが未設定です。Renderの環境変数 CONFIG_SPREADSHEET_ID を確認してください。")
+        return False
     try:
         sh = client.open_by_key(spreadsheet_id)
         try:
@@ -185,8 +197,10 @@ def save_crews_to_sheet(client, crews: list) -> None:
         if crews:
             rows += [[c["name"], c["photo_url"], c["favorite_book"], c.get("favorite_book_author", "")] for c in crews]
         ws.update("A1", rows)
-    except Exception:
-        pass
+        return True
+    except Exception as e:
+        st.error(f"❌ スプレッドシート保存失敗: {e}")
+        return False
 
 
 def open_template_image(book: dict, crew_name: str) -> Image.Image:
@@ -229,17 +243,24 @@ book_titles = [b["title"] for b in books]
 crew_names = [c["name"] for c in crews]
 
 # ─── 管理モード ───────────────────────────────────────────────────────────────
+_rerun = st.rerun if hasattr(st, "rerun") else st.experimental_rerun
+
 with st.sidebar.expander("管理モード（絵本・クルーの編集）"):
     admin_tab = st.radio("編集したい項目", ["絵本", "クルー"], horizontal=True)
 
-    if not gclient or not get_spreadsheet_id():
-        st.warning(
-            "Googleスプレッドシート連携が未設定のため、編集内容はサーバー再起動時に失われます。\n\n"
-            "**Streamlit Cloud の場合**: アプリの Settings → Secrets に以下を設定してください:\n"
-            "- `GOOGLE_SERVICE_ACCOUNT_JSON`\n"
-            "- `CONFIG_SPREADSHEET_ID`\n\n"
-            "**Render の場合**: Environment Variables で同じキーを設定してください。",
-            icon="⚠️",
+    # 接続ステータス表示
+    _sid = get_spreadsheet_id()
+    if gclient and _sid:
+        st.success(f"✅ スプレッドシート接続OK", icon="✅")
+    else:
+        _missing = []
+        if not gclient:
+            _missing.append("`GOOGLE_SERVICE_ACCOUNT_JSON`")
+        if not _sid:
+            _missing.append("`CONFIG_SPREADSHEET_ID`")
+        st.error(
+            f"❌ スプレッドシート未接続。Renderの Environment Variables に {' と '.join(_missing)} を設定してください。\n\n"
+            "設定後はRenderで **Manual Deploy** を実行してください。",
         )
 
     if admin_tab == "絵本":
@@ -256,10 +277,9 @@ with st.sidebar.expander("管理モード（絵本・クルーの編集）"):
             if st.form_submit_button("絵本を追加"):
                 new_title = new_title.strip()
                 if new_title and not any(b["title"] == new_title for b in books):
-                    # 画像をGoogle Driveにアップロード
                     image_url = ""
                     if new_image_file is not None:
-                        with st.spinner("画像をアップロード中..."):
+                        with st.spinner("画像を変換中..."):
                             uploaded_url = upload_image_to_drive(
                                 new_image_file.read(),
                                 new_image_file.name,
@@ -267,12 +287,12 @@ with st.sidebar.expander("管理モード（絵本・クルーの編集）"):
                             )
                         if uploaded_url:
                             image_url = uploaded_url
-                        else:
-                            st.warning("画像のアップロードに失敗しました。スプレッドシート連携を確認してください。")
                     books.append(_book_dict(new_title, new_author.strip(), new_summary.strip(), image_url))
-                    save_books_to_sheet(gclient, books)
-                    st.success(f"「{new_title}」を追加しました。")
-                    (st.rerun if hasattr(st, "rerun") else st.experimental_rerun)()
+                    ok = save_books_to_sheet(gclient, books)
+                    if ok:
+                        st.success(f"✅ 「{new_title}」を追加・保存しました。")
+                        _rerun()
+                    # save失敗時はエラーがsave関数内で表示済み、rerunnしない
                 elif new_title and any(b["title"] == new_title for b in books):
                     st.info("すでに同じタイトルの絵本があります。")
 
@@ -283,9 +303,10 @@ with st.sidebar.expander("管理モード（絵本・クルーの編集）"):
                     st.warning("初期の絵本のみの状態には削除できません。")
                 else:
                     books = [b for b in books if b["title"] != remove_title]
-                    save_books_to_sheet(gclient, books)
-                    st.success(f"「{remove_title}」を削除しました。")
-                    (st.rerun if hasattr(st, "rerun") else st.experimental_rerun)()
+                    ok = save_books_to_sheet(gclient, books)
+                    if ok:
+                        st.success(f"✅ 「{remove_title}」を削除しました。")
+                        _rerun()
 
     else:  # クルー
         st.caption("クルー登録：名前・写真・好きな絵本を入力してください。")
@@ -301,24 +322,21 @@ with st.sidebar.expander("管理モード（絵本・クルーの編集）"):
             if st.form_submit_button("クルーを追加"):
                 new_name = new_name.strip()
                 if new_name and not any(c["name"] == new_name for c in crews):
-                    # 写真をGoogle Driveにアップロード
                     photo_url = ""
                     if new_photo_file is not None:
-                        with st.spinner("写真をアップロード中..."):
+                        with st.spinner("写真を変換中..."):
                             uploaded_url = upload_image_to_drive(
                                 new_photo_file.read(),
                                 new_photo_file.name,
                                 new_photo_file.type or "image/jpeg",
-                                use_base64_fallback=True,
                             )
                         if uploaded_url:
                             photo_url = uploaded_url
-                        else:
-                            st.warning("写真のアップロードに失敗しました。")
                     crews.append(_crew_dict(new_name, photo_url, new_favorite_book.strip(), new_favorite_book_author.strip()))
-                    save_crews_to_sheet(gclient, crews)
-                    st.success(f"「{new_name}」を追加しました。")
-                    (st.rerun if hasattr(st, "rerun") else st.experimental_rerun)()
+                    ok = save_crews_to_sheet(gclient, crews)
+                    if ok:
+                        st.success(f"✅ 「{new_name}」を追加・保存しました。")
+                        _rerun()
                 elif new_name and any(c["name"] == new_name for c in crews):
                     st.info("すでに同じ名前のクルーがあります。")
 
@@ -329,9 +347,10 @@ with st.sidebar.expander("管理モード（絵本・クルーの編集）"):
                     st.warning("初期のクルーのみの状態には削除できません。")
                 else:
                     crews = [c for c in crews if c["name"] != remove_name]
-                    save_crews_to_sheet(gclient, crews)
-                    st.success(f"「{remove_name}」を削除しました。")
-                    (st.rerun if hasattr(st, "rerun") else st.experimental_rerun)()
+                    ok = save_crews_to_sheet(gclient, crews)
+                    if ok:
+                        st.success(f"✅ 「{remove_name}」を削除しました。")
+                        _rerun()
 
 # ─── 本番UI用に再取得 ─────────────────────────────────────────────────────────
 books = load_books_from_sheet(gclient)
