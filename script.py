@@ -23,7 +23,6 @@ CREWS_SHEET_NAME = "crews"
 
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive",
 ]
 
 
@@ -89,80 +88,17 @@ def get_gspread_client():
 
 
 def upload_image_to_drive(file_bytes, filename, mimetype="image/jpeg", use_base64_fallback=False):
-    """Google Drive に画像をアップロードし、公開URLを返す。
-    use_base64_fallback=True の場合、Drive APIが使えない時はbase64データURLにフォールバックする（クルー写真向け）。"""
-    creds = _build_credentials()
-    drive_error = None
-
-    if creds is not None:
-        try:
-            import google.auth.transport.requests as ga_requests
-            creds.refresh(ga_requests.Request())
-            access_token = creds.token
-
-            boundary = "yomy_upload_boundary"
-            metadata = json.dumps({"name": filename}).encode("utf-8")
-            body = (
-                f"--{boundary}\r\n".encode()
-                + b"Content-Type: application/json; charset=UTF-8\r\n\r\n"
-                + metadata + b"\r\n"
-                + f"--{boundary}\r\n".encode()
-                + f"Content-Type: {mimetype}\r\n\r\n".encode()
-                + file_bytes
-                + f"\r\n--{boundary}--".encode()
-            )
-            headers = {"Authorization": f"Bearer {access_token}"}
-            r = requests.post(
-                "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id",
-                headers={**headers, "Content-Type": f"multipart/related; boundary={boundary}"},
-                data=body,
-                timeout=30,
-            )
-            r.raise_for_status()
-            file_id = r.json()["id"]
-
-            # 誰でも閲覧できるように公開設定
-            requests.post(
-                f"https://www.googleapis.com/drive/v3/files/{file_id}/permissions",
-                headers={**headers, "Content-Type": "application/json"},
-                json={"type": "anyone", "role": "reader"},
-                timeout=10,
-            ).raise_for_status()
-
-            return f"https://drive.google.com/uc?id={file_id}"
-        except Exception as e:
-            drive_error = e
-    else:
-        drive_error = "サービスアカウントの認証情報が設定されていません"
-
-    # base64フォールバック（クルー写真など小サイズ画像向け）
-    if use_base64_fallback:
-        st.info(
-            f"⚠️ Google Drive へのアップロードに失敗したため、画像を小さくしてスプレッドシートに保存します。\n\n"
-            f"**エラー詳細**: `{drive_error}`\n\n"
-            "考えられる原因:\n"
-            "- サービスアカウントに Drive の書き込み権限がない\n"
-            "- 組織のポリシーで外部共有が制限されている\n"
-            "- Google Cloud Console で Drive API が有効化されていない"
-        )
-        try:
-            img = Image.open(io.BytesIO(file_bytes))
-            img.thumbnail((150, 150), Image.LANCZOS)
-            buf = io.BytesIO()
-            img.convert("RGB").save(buf, format="JPEG", quality=55)
-            encoded = base64.b64encode(buf.getvalue()).decode("utf-8")
-            return f"data:image/jpeg;base64,{encoded}"
-        except Exception as e2:
-            st.warning(f"画像の変換に失敗しました: {e2}")
-            return None
-
-    st.warning(
-        f"画像のDriveアップロードに失敗しました: {drive_error}\n\n"
-        "**原因**: Google Drive APIが有効化されていない可能性があります。\n"
-        "Google Cloud Consoleで Drive API を有効化してください:\n"
-        "https://console.cloud.google.com/apis/library/drive.googleapis.com"
-    )
-    return None
+    """画像をbase64エンコードしてスプレッドシートに保存できる形式で返す。"""
+    try:
+        img = Image.open(io.BytesIO(file_bytes))
+        img.thumbnail((300, 300), Image.LANCZOS)
+        buf = io.BytesIO()
+        img.convert("RGB").save(buf, format="JPEG", quality=72)
+        encoded = base64.b64encode(buf.getvalue()).decode("utf-8")
+        return f"data:image/jpeg;base64,{encoded}"
+    except Exception as e:
+        st.warning(f"画像の変換に失敗しました: {e}")
+        return None
 
 
 def load_books_from_sheet(client) -> list:
