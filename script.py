@@ -31,8 +31,13 @@ def _book_dict(title, author="", summary="", image_url=""):
     return {"title": title, "author": author, "summary": summary, "image_url": image_url or ""}
 
 
-def _crew_dict(name, photo_url="", favorite_book=""):
-    return {"name": name, "photo_url": photo_url or "", "favorite_book": favorite_book or ""}
+def _crew_dict(name, photo_url="", favorite_book="", favorite_book_author=""):
+    return {
+        "name": name,
+        "photo_url": photo_url or "",
+        "favorite_book": favorite_book or "",
+        "favorite_book_author": favorite_book_author or "",
+    }
 
 
 def _build_credentials():
@@ -202,7 +207,8 @@ def load_crews_from_sheet(client) -> list:
         name = row[0]
         photo_url = row[1] if len(row) > 1 else ""
         favorite_book = row[2] if len(row) > 2 else ""
-        out.append(_crew_dict(name, photo_url, favorite_book))
+        favorite_book_author = row[3] if len(row) > 3 else ""
+        out.append(_crew_dict(name, photo_url, favorite_book, favorite_book_author))
     return out or [_crew_dict(n) for n in DEFAULT_CREWS]
 
 
@@ -232,10 +238,10 @@ def save_crews_to_sheet(client, crews: list) -> None:
         try:
             ws = sh.worksheet(CREWS_SHEET_NAME)
         except gspread.WorksheetNotFound:
-            ws = sh.add_worksheet(title=CREWS_SHEET_NAME, rows="200", cols="3")
+            ws = sh.add_worksheet(title=CREWS_SHEET_NAME, rows="200", cols="4")
         ws.clear()
         if crews:
-            ws.update("A1", [[c["name"], c["photo_url"], c["favorite_book"]] for c in crews])
+            ws.update("A1", [[c["name"], c["photo_url"], c["favorite_book"], c.get("favorite_book_author", "")] for c in crews])
     except Exception:
         pass
 
@@ -347,7 +353,8 @@ with st.sidebar.expander("管理モード（絵本・クルーの編集）"):
                 type=["jpg", "jpeg", "png"],
                 key="crew_photo_upload",
             )
-            new_favorite_book = st.selectbox("好きな絵本", [""] + book_titles)
+            new_favorite_book = st.text_input("好きな絵本（タイトル）")
+            new_favorite_book_author = st.text_input("好きな絵本（作者名）")
             if st.form_submit_button("クルーを追加"):
                 new_name = new_name.strip()
                 if new_name and not any(c["name"] == new_name for c in crews):
@@ -365,7 +372,7 @@ with st.sidebar.expander("管理モード（絵本・クルーの編集）"):
                             photo_url = uploaded_url
                         else:
                             st.warning("写真のアップロードに失敗しました。")
-                    crews.append(_crew_dict(new_name, photo_url, new_favorite_book))
+                    crews.append(_crew_dict(new_name, photo_url, new_favorite_book.strip(), new_favorite_book_author.strip()))
                     save_crews_to_sheet(gclient, crews)
                     st.success(f"「{new_name}」を追加しました。")
                     (st.rerun if hasattr(st, "rerun") else st.experimental_rerun)()
