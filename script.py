@@ -5,7 +5,6 @@ import json
 import os
 import io
 import base64
-import traceback
 import gspread
 from google.oauth2.service_account import Credentials
 import requests
@@ -48,6 +47,7 @@ CREWS_SHEET_NAME = "crews"
 
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive",
 ]
 
 
@@ -55,19 +55,27 @@ def _book_dict(title, author="", summary="", image_url=""):
     return {"title": title, "author": author, "summary": summary, "image_url": image_url or ""}
 
 
-def _crew_dict(name, photo_url="", favorite_book="", favorite_book_author=""):
+def _crew_dict(name, photo_url="", favorite_book="", circle_x=1400, circle_y=400, circle_r=200):
     return {
         "name": name,
         "photo_url": photo_url or "",
         "favorite_book": favorite_book or "",
-        "favorite_book_author": favorite_book_author or "",
+        "circle_x": int(circle_x),
+        "circle_y": int(circle_y),
+        "circle_r": int(circle_r),
     }
+
+
+def _safe_int(val, default):
+    try:
+        return int(val)
+    except Exception:
+        return default
 
 
 def _build_credentials():
     """サービスアカウント Credentials オブジェクトを生成。
     Streamlit Secrets (TOML dict または JSON文字列) → 環境変数 → ローカルファイルの順で試みる。"""
-    # Streamlit Secrets から取得（TOML dict形式 or JSON文字列形式）
     try:
         val = st.secrets[GOOGLE_SERVICE_ACCOUNT_JSON_ENV]
         if val:
@@ -76,7 +84,6 @@ def _build_credentials():
     except Exception:
         pass
 
-    # 環境変数から取得（JSON文字列）
     info_json = os.getenv(GOOGLE_SERVICE_ACCOUNT_JSON_ENV)
     if info_json:
         try:
@@ -84,7 +91,6 @@ def _build_credentials():
         except Exception:
             pass
 
-    # ローカルファイルから取得
     if os.path.exists(GOOGLE_SERVICE_ACCOUNT_FILE):
         try:
             return Credentials.from_service_account_file(GOOGLE_SERVICE_ACCOUNT_FILE, scopes=SCOPES)
@@ -95,7 +101,6 @@ def _build_credentials():
 
 
 def get_spreadsheet_id():
-    """スプレッドシートIDをStreamlit Secrets または環境変数から取得"""
     try:
         return str(st.secrets[CONFIG_SPREADSHEET_ID_ENV])
     except Exception:
@@ -112,13 +117,13 @@ def get_gspread_client():
         return None
 
 
-def upload_image_to_drive(file_bytes, filename, mimetype="image/jpeg", use_base64_fallback=False):
-    """画像をbase64エンコードしてスプレッドシートに保存できる形式で返す。"""
+def upload_image_to_drive(file_bytes, filename, mimetype="image/jpeg"):
+    """画像をbase64エンコードしてスプレッドシートに保存できる形式で返す。失敗時は None。"""
     try:
         img = Image.open(io.BytesIO(file_bytes))
-        img.thumbnail((300, 300), Image.LANCZOS)
+        img.thumbnail((800, 800), Image.LANCZOS)
         buf = io.BytesIO()
-        img.convert("RGB").save(buf, format="JPEG", quality=72)
+        img.convert("RGB").save(buf, format="JPEG", quality=85)
         encoded = base64.b64encode(buf.getvalue()).decode("utf-8")
         return f"data:image/jpeg;base64,{encoded}"
     except Exception as e:
@@ -138,8 +143,10 @@ def load_books_from_sheet(client) -> list:
         return [_book_dict(t) for t in DEFAULT_BOOKS]
     if not rows:
         return [_book_dict(t) for t in DEFAULT_BOOKS]
+    # ヘッダー行を自動検出してスキップ
+    start = 1 if (rows[0] and str(rows[0][0]).strip().lower() == "title") else 0
     out = []
-    for row in rows[1:]:  # 1行目はヘッダーなのでスキップ
+    for row in rows[start:]:
         row = [str(c).strip() for c in row]
         if not row or not row[0]:
             continue
@@ -163,27 +170,30 @@ def load_crews_from_sheet(client) -> list:
         return [_crew_dict(n) for n in DEFAULT_CREWS]
     if not rows:
         return [_crew_dict(n) for n in DEFAULT_CREWS]
+    # ヘッダー行を自動検出してスキップ
+    start = 1 if (rows[0] and str(rows[0][0]).strip().lower() == "name") else 0
     out = []
-    for row in rows[1:]:  # 1行目はヘッダーなのでスキップ
+    for row in rows[start:]:
         row = [str(c).strip() for c in row]
         if not row or not row[0]:
             continue
         name = row[0]
         photo_url = row[1] if len(row) > 1 else ""
         favorite_book = row[2] if len(row) > 2 else ""
-        favorite_book_author = row[3] if len(row) > 3 else ""
-        out.append(_crew_dict(name, photo_url, favorite_book, favorite_book_author))
+        circle_x = _safe_int(row[3], 1400) if len(row) > 3 else 1400
+        circle_y = _safe_int(row[4], 400)  if len(row) > 4 else 400
+        circle_r = _safe_int(row[5], 200)  if len(row) > 5 else 200
+        out.append(_crew_dict(name, photo_url, favorite_book, circle_x, circle_y, circle_r))
     return out or [_crew_dict(n) for n in DEFAULT_CREWS]
 
 
 def save_books_to_sheet(client, books: list) -> bool:
-    """保存成功でTrue、失敗でFalseを返す。"""
     spreadsheet_id = get_spreadsheet_id()
     if not client:
-        st.error("❌ スプレッドシート保存失敗: Google認証情報が取得できていません。Renderの環境変数 GOOGLE_SERVICE_ACCOUNT_JSON を確認してください。")
+        st.error("❌ スプレッドシート保存失敗: Google認証情報が取得できていません。")
         return False
     if not spreadsheet_id:
-        st.error("❌ スプレッドシート保存失敗: スプレッドシートIDが未設定です。Renderの環境変数 CONFIG_SPREADSHEET_ID を確認してください。")
+        st.error("❌ スプレッドシート保存失敗: スプレッドシートIDが未設定です。")
         return False
     try:
         sh = client.open_by_key(spreadsheet_id)
@@ -198,55 +208,69 @@ def save_books_to_sheet(client, books: list) -> bool:
         ws.update(rows, "A1")
         return True
     except Exception as e:
-        st.error(f"❌ スプレッドシート保存失敗: {type(e).__name__}: {repr(e)}\n\n```\n{traceback.format_exc()}\n```")
+        st.error(f"❌ スプレッドシート保存失敗: {e}")
         return False
 
 
 def save_crews_to_sheet(client, crews: list) -> bool:
-    """保存成功でTrue、失敗でFalseを返す。"""
     spreadsheet_id = get_spreadsheet_id()
     if not client:
-        st.error("❌ スプレッドシート保存失敗: Google認証情報が取得できていません。Renderの環境変数 GOOGLE_SERVICE_ACCOUNT_JSON を確認してください。")
+        st.error("❌ スプレッドシート保存失敗: Google認証情報が取得できていません。")
         return False
     if not spreadsheet_id:
-        st.error("❌ スプレッドシート保存失敗: スプレッドシートIDが未設定です。Renderの環境変数 CONFIG_SPREADSHEET_ID を確認してください。")
+        st.error("❌ スプレッドシート保存失敗: スプレッドシートIDが未設定です。")
         return False
     try:
         sh = client.open_by_key(spreadsheet_id)
         try:
             ws = sh.worksheet(CREWS_SHEET_NAME)
         except gspread.WorksheetNotFound:
-            ws = sh.add_worksheet(title=CREWS_SHEET_NAME, rows="200", cols="4")
+            ws = sh.add_worksheet(title=CREWS_SHEET_NAME, rows="200", cols="6")
         ws.clear()
-        rows = [["name", "photo_url", "favorite_book", "favorite_book_author"]]
+        rows = [["name", "photo_url", "favorite_book", "circle_x", "circle_y", "circle_r"]]
         if crews:
-            rows += [[c["name"], c["photo_url"], c["favorite_book"], c.get("favorite_book_author", "")] for c in crews]
+            rows += [
+                [c["name"], c["photo_url"], c["favorite_book"],
+                 c.get("circle_x", 1400), c.get("circle_y", 400), c.get("circle_r", 200)]
+                for c in crews
+            ]
         ws.update(rows, "A1")
         return True
     except Exception as e:
-        st.error(f"❌ スプレッドシート保存失敗: {type(e).__name__}: {repr(e)}\n\n```\n{traceback.format_exc()}\n```")
+        st.error(f"❌ スプレッドシート保存失敗: {e}")
         return False
+
+
+def _load_image_from_url_or_b64(url_or_b64: str):
+    """Drive URL または base64 data URL から PIL Image (RGB) を返す。失敗時 None。"""
+    if not url_or_b64:
+        return None
+    if url_or_b64.startswith("data:"):
+        try:
+            _, b64data = url_or_b64.split(",", 1)
+            return Image.open(io.BytesIO(base64.b64decode(b64data))).convert("RGB")
+        except Exception:
+            return None
+    else:
+        try:
+            r = requests.get(url_or_b64, timeout=10)
+            r.raise_for_status()
+            return Image.open(io.BytesIO(r.content)).convert("RGB")
+        except Exception:
+            return None
 
 
 def open_template_image(book: dict, crew_name: str) -> Image.Image:
     title = book.get("title", "")
+
+    # 1. 本の image_url (管理画面でアップロードしたテンプレート)
     image_url = (book.get("image_url") or "").strip()
     if image_url:
-        if image_url.startswith("data:"):
-            try:
-                _, b64data = image_url.split(",", 1)
-                img_bytes = base64.b64decode(b64data)
-                return Image.open(io.BytesIO(img_bytes)).convert("RGB")
-            except Exception:
-                pass
-        else:
-            try:
-                r = requests.get(image_url, timeout=10)
-                r.raise_for_status()
-                return Image.open(io.BytesIO(r.content)).convert("RGB")
-            except Exception:
-                pass
-    # 既存マッピング（Assets）
+        img = _load_image_from_url_or_b64(image_url)
+        if img:
+            return img
+
+    # 2. ハードコードマッピング（Cory / Zen 後方互換）
     if title == "たんぽぽのぽんちゃん" and crew_name == "Cory":
         return Image.open("Assets/1.jpg")
     if title == "たんぽぽのぽんちゃん" and crew_name == "Zen":
@@ -257,7 +281,44 @@ def open_template_image(book: dict, crew_name: str) -> Image.Image:
         return Image.open("Assets/4.jpg")
     if title == "グルメなペリカン" and crew_name == "Cory":
         return Image.open("Assets/5.jpg")
-    return Image.open("Assets/6.jpg")
+    if title == "グルメなペリカン" and crew_name == "Zen":
+        return Image.open("Assets/6.jpg")
+
+    # 3. 新規クルー用: 絵本別フォールバック（Cory版のテンプレートを使い、次のpaste_crew_photoで顔を上書き）
+    _BOOK_FALLBACK = {
+        "たんぽぽのぽんちゃん": "Assets/1.jpg",
+        "ぼくエスカレーター":   "Assets/2.jpg",
+        "グルメなペリカン":    "Assets/5.jpg",
+    }
+    return Image.open(_BOOK_FALLBACK.get(title, "Assets/5.jpg"))
+
+
+def paste_crew_photo(img: Image.Image, crew_obj: dict) -> None:
+    """crew_obj の photo_url を丸く切り抜いてテンプレートの丸枠に合成する。
+    photo_url が空の場合はスキップ（Cory/Zen など Assets に顔入りのクルーは空のままでOK）。"""
+    photo_url = (crew_obj or {}).get("photo_url", "").strip()
+    if not photo_url:
+        return
+
+    cx = _safe_int((crew_obj or {}).get("circle_x", 1400), 1400)
+    cy = _safe_int((crew_obj or {}).get("circle_y", 400), 400)
+    cr = _safe_int((crew_obj or {}).get("circle_r", 200), 200)
+    diameter = cr * 2
+
+    photo_rgb = _load_image_from_url_or_b64(photo_url)
+    if photo_rgb is None:
+        return
+
+    photo = photo_rgb.convert("RGBA")
+    w, h = photo.size
+    side = min(w, h)
+    photo = photo.crop(((w - side) // 2, (h - side) // 2,
+                        (w + side) // 2, (h + side) // 2))
+    photo = photo.resize((diameter, diameter), Image.LANCZOS)
+
+    mask = Image.new("L", (diameter, diameter), 0)
+    ImageDraw.Draw(mask).ellipse((0, 0, diameter, diameter), fill=255)
+    img.paste(photo.convert("RGB"), (cx - cr, cy - cr), mask)
 
 
 # ─── 初期データ読み込み ───────────────────────────────────────────────────────
@@ -267,16 +328,15 @@ crews = load_crews_from_sheet(gclient)
 book_titles = [b["title"] for b in books]
 crew_names = [c["name"] for c in crews]
 
-# ─── 管理モード ───────────────────────────────────────────────────────────────
 _rerun = st.rerun if hasattr(st, "rerun") else st.experimental_rerun
 
+# ─── 管理モード ───────────────────────────────────────────────────────────────
 with st.sidebar.expander("管理モード（絵本・クルーの編集）"):
     admin_tab = st.radio("編集したい項目", ["絵本", "クルー"], horizontal=True)
 
-    # 接続ステータス表示
     _sid = get_spreadsheet_id()
     if gclient and _sid:
-        st.success(f"✅ スプレッドシート接続OK", icon="✅")
+        st.success("✅ スプレッドシート接続OK", icon="✅")
     else:
         _missing = []
         if not gclient:
@@ -284,8 +344,9 @@ with st.sidebar.expander("管理モード（絵本・クルーの編集）"):
         if not _sid:
             _missing.append("`CONFIG_SPREADSHEET_ID`")
         st.error(
-            f"❌ スプレッドシート未接続。Renderの Environment Variables に {' と '.join(_missing)} を設定してください。\n\n"
-            "設定後はRenderで **Manual Deploy** を実行してください。",
+            f"❌ スプレッドシート未接続。Renderの Environment Variables に "
+            f"{' と '.join(_missing)} を設定してください。\n\n"
+            "設定後は Render で **Manual Deploy** を実行してください。"
         )
 
     if admin_tab == "絵本":
@@ -317,7 +378,6 @@ with st.sidebar.expander("管理モード（絵本・クルーの編集）"):
                     if ok:
                         st.success(f"✅ 「{new_title}」を追加・保存しました。")
                         _rerun()
-                    # save失敗時はエラーがsave関数内で表示済み、rerunnしない
                 elif new_title and any(b["title"] == new_title for b in books):
                     st.info("すでに同じタイトルの絵本があります。")
 
@@ -342,8 +402,15 @@ with st.sidebar.expander("管理モード（絵本・クルーの編集）"):
                 type=["jpg", "jpeg", "png"],
                 key="crew_photo_upload",
             )
-            new_favorite_book = st.text_input("好きな絵本（タイトル）")
-            new_favorite_book_author = st.text_input("好きな絵本（作者名）")
+            new_favorite_book = st.selectbox("好きな絵本", [""] + book_titles)
+            st.caption("クルー写真の丸枠位置（実行後プレビューを見ながら調整してください）")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                new_circle_x = st.number_input("中心 X", value=1400, step=10, key="cx")
+            with col2:
+                new_circle_y = st.number_input("中心 Y", value=400, step=10, key="cy")
+            with col3:
+                new_circle_r = st.number_input("半径(px)", value=200, step=10, key="cr")
             if st.form_submit_button("クルーを追加"):
                 new_name = new_name.strip()
                 if new_name and not any(c["name"] == new_name for c in crews):
@@ -357,7 +424,10 @@ with st.sidebar.expander("管理モード（絵本・クルーの編集）"):
                             )
                         if uploaded_url:
                             photo_url = uploaded_url
-                    crews.append(_crew_dict(new_name, photo_url, new_favorite_book.strip(), new_favorite_book_author.strip()))
+                    crews.append(_crew_dict(
+                        new_name, photo_url, new_favorite_book,
+                        int(new_circle_x), int(new_circle_y), int(new_circle_r)
+                    ))
                     ok = save_crews_to_sheet(gclient, crews)
                     if ok:
                         st.success(f"✅ 「{new_name}」を追加・保存しました。")
@@ -404,7 +474,9 @@ child_name_kanji = st.text_input("子どもの名前（漢字、LINE用、〇〇
 if upload_image is not None:
     if st.button("実行"):
         book_obj = next((b for b in books if b["title"] == book), books[0])
+        crew_obj = next((c for c in crews if c["name"] == crew), None)
         img = open_template_image(book_obj, crew)
+        paste_crew_photo(img, crew_obj)
         ss_image = Image.open(upload_image).convert("RGBA")
         if ss_image is not None and name != "" and comment != "":
             width = 1050
@@ -420,7 +492,8 @@ if upload_image is not None:
             for line in wrap_list:
                 y = line_counter * 85 + 2734
                 draw.multiline_text((313, y), line, fill=("black"), font=font_comment)
-                line_counter = line_counter + 1
+                line_counter += 1
+
             _child = child_name_kanji.strip() if child_name_kanji.strip() else name
             _parent = parent_last_name.strip() if parent_last_name.strip() else "○○"
             line_text = (
@@ -441,9 +514,10 @@ if upload_image is not None:
                 f"　「メニューをみる」→「はじめての方」→右下「QA」からレッスン詳細もご覧いただけます。\n"
                 f"現在、体験会後2日以内（当日・翌日まで）にお申し込みいただくと、通常20,000円の入会金が無料 となります✨ぜひこの機会にご検討くださいませ。"
             )
+
             img.save("result.jpg", quality=100)
             with open("result.jpg", "rb") as file:
-                btn = st.download_button(
+                st.download_button(
                     label="画像をダウンロード",
                     data=file,
                     file_name="comment_" + name + ".jpg",
